@@ -15,8 +15,7 @@ __pycache__/
 # Temporary files and generated experiment artifacts
 **/temp/*
 !**/temp/.gitkeep
-**/Data/*
-!**/Data/.gitkeep
+**/Data/
 
 # OS files
 .DS_Store

@@ -61,7 +61,12 @@ def trainTarget(
     beta: np.ndarray | None = None,
     noise_std: float = 0.04,
     seed: int | np.random.Generator | None = None,
-) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray]:
+    *,
+    return_x0: bool = False,
+) -> (
+    tuple[tuple[np.ndarray, np.ndarray], np.ndarray]
+    | tuple[tuple[np.ndarray, np.ndarray], np.ndarray, np.ndarray]
+):
     """返回一批 DDPM 训练输入 ((Xt, t), epsilon)。
 
     beta 是完整的一维方差计划；默认 1000 步，从 0.0001 线性增加到 0.02。
@@ -70,6 +75,7 @@ def trainTarget(
     t 为 (n_samples,) 的 int64 数组，范围为 1..T（含两端）。
     seed 支持整数或 NumPy Generator；连续训练请复用 Generator 或传 None，
     反复传同一个整数会重复生成相同批次。
+    return_x0=True 时额外返回对应的原始点：((Xt, t), epsilon, X0)。
     """
     def check_initial() -> np.ndarray:
         """校验 beta；样本数和厚度由 S 形采样函数校验。"""
@@ -97,4 +103,7 @@ def trainTarget(
     # t 从 1 开始，数组索引从 0 开始；增加一维以广播到 x、y 两个坐标。
     alpha_bar_t = alpha_bar[t - 1, None]
     xt = np.sqrt(alpha_bar_t) * x0 + np.sqrt(1.0 - alpha_bar_t) * epsilon
-    return (xt.astype(np.float32), t), epsilon
+    inputs = (xt.astype(np.float32), t)
+    if return_x0:
+        return inputs, epsilon, x0
+    return inputs, epsilon

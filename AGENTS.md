@@ -64,10 +64,19 @@ diffusion/
 - `alpha_t = 1 - beta_t`，`alpha_bar_t` 是从第 1 步至第 t 步的 alpha 累乘；`Xt = sqrt(alpha_bar_t) * X0 + sqrt(1-alpha_bar_t) * epsilon`。
 - 返回 `((Xt, t), epsilon)`；`Xt`、`epsilon` 形状为 `(N, 2)`、类型为 `float32`，`t` 形状为 `(N,)`、类型为 `int64`，取值为 `1..T`，查数组时使用 `t-1`。
 - 采样函数支持整数种子或 NumPy Generator；连续训练应复用 Generator 或使用 `seed=None`，避免每次重置为同一整数种子而重复同一批数据。
+- `trainTarget(..., return_x0=True)` 额外返回原始点，格式为 `((Xt, t), epsilon, X0)`；默认返回格式不变。
+
+### 训练数据保存与加噪可视化
+
+- 项目根目录运行 `python -m lgx_ddpm.src.prepare_data`，默认分批生成 100 万条样本至 `lgx_ddpm/Data/rawdata/`，已有目录不会被覆盖；`--plot-only` 可只读取已有数据重新绘图。
+- 保存 `xt.npy`、`t.npy`、`epsilon.npy`、`x0.npy` 和 `beta.npy`；`metadata.json` 记录参数、随机种子、批次大小、NumPy 版本及完整状态。训练用 `np.load(..., mmap_mode='r')` 按需读取 `Xt,t,epsilon`，`X0` 保留用于核对和可视化。
+- 每条样本占 32 字节（3 个二维 float32 向量 + 1 个 int64 时间步）；100 万条样本的数组载荷约 32 MB / 30.5 MiB，另加 beta、文件头、元数据和 PNG。生成前估算并检查磁盘可用空间。
+- `lgx_ddpm/src/misc/vis.py` 的 `group_training_data` 分块读取并按精确时间步汇总；`vis_training_data` 为 `t=100,300,500,700,1000` 各保存一张 `Xt / X0 / epsilon` 三联图至 `rawdata/plots/`。同组样本严格对应，跨组坐标范围相同；epsilon 是未缩放的训练目标。
+- 时间步仍按均匀分布随机抽样，100 万条样本中每个 t 预计约 1000 条，实际数量随机；不同 t 的图展示不同原始样本的分布，不表示相同样本的演化轨迹。
 
 ## 版本管理
 
 - 使用 Git 管理项目，GitHub 远程仓库为 `https://github.com/lgxhitairplane/simpleDiffusionModel`，主分支为 `main`。
 - 使用 Git 提交记录可恢复的版本，不再通过复制源码到 temp 目录维护核验副本。
-- 源码、项目约定和依赖清单纳入版本管理；临时缓存、虚拟环境、生成数据、模型和图表由根目录 `.gitignore` 排除，目录占位文件 `.gitkeep` 可保留。
+- 源码、项目约定和依赖清单纳入版本管理；临时缓存、虚拟环境由根目录 `.gitignore` 排除，temp 目录占位文件 `.gitkeep` 可保留；所有 `Data/` 目录整体忽略（包括其占位文件）。
 - 提交前检查差异及暂存清单，确认必要验证通过。Git 提交保存本地版本；推送至远程后才会同步到 GitHub。
