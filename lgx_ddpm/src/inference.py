@@ -51,6 +51,9 @@ def main():
     from .misc.vis import vis_inference
     fig, _ = vis_inference(initial, generated, target, save_path=destination / "comparison.png")
     fig.clear()
+    fig, _ = vis_inference(initial, generated, target, save_path=destination / "comparison_density.png",
+                           density_weighted=True, view_quantile=0.995)
+    fig.clear()
     print(f"Saved generated X0 and comparison plot: {destination} ({elapsed:.2f}s)", flush=True)
 
 

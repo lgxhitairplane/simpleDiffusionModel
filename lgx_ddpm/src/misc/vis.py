@@ -153,24 +153,74 @@ def vis_training_data(
     return paths
 
 
-def vis_inference(initial, generated, target, *, save_path: str | Path):
-    """在相同坐标范围内对比初始高斯、生成点云和独立的目标分布样本。"""
+def density_opacity(points, *, bound: float, bins: int = 80, gamma: float = 1.0):
+    """把局部点密度归一化为透明度，返回每个点的 alpha，范围为 0.015..0.65。
+
+    在 [-bound, bound]^2 上建立二维直方图，累加相邻 3x3 格计数，
+    按点所在格读取密度，再除以可见点密度的第 95 百分位并截断到 [0,1]。
+    alpha = 0.015 + 0.635 * normalized_density**gamma。
+    gamma 越大，稀疏点越淡；每组点云独立归一化，不借助目标曲线判断点的好坏。
+    超出视窗的点使用最低透明度；不删除点、不修改坐标，仅改变显示权重。
+    """
+    points = np.asarray(points)
+    if points.ndim != 2 or points.shape[1] != 2 or not len(points) or not np.isfinite(points).all():
+        raise ValueError("points 必须是非空的有限 (N, 2) 数组")
+    if not np.isfinite(bound) or bound <= 0 or not np.isfinite(gamma) or gamma <= 0:
+        raise ValueError("bound、gamma 必须为有限正数")
+    if isinstance(bins, bool) or not isinstance(bins, int) or bins < 3:
+        raise ValueError("bins 必须是至少为 3 的整数")
+    visible = (np.abs(points) <= bound).all(axis=1)
+    opacity = np.full(len(points), 0.015)
+    if not visible.any():
+        return opacity
+    selected = points[visible]
+    counts, _, _ = np.histogram2d(selected[:, 0], selected[:, 1], bins=bins,
+                                 range=((-bound, bound), (-bound, bound)))
+    padded = np.pad(counts, 1)
+    local_counts = sum(padded[i:i + bins, j:j + bins] for i in range(3) for j in range(3))
+    cells = np.floor((selected + bound) / (2 * bound) * bins).astype(np.int64)
+    cells = np.clip(cells, 0, bins - 1)
+    density = local_counts[cells[:, 0], cells[:, 1]]
+    normalized = np.clip(density / np.quantile(density, 0.95), 0, 1)
+    opacity[visible] += 0.635 * normalized ** gamma
+    return opacity
+
+
+def vis_inference(initial, generated, target, *, save_path: str | Path,
+                  density_weighted: bool = False, view_quantile: float = 1.0,
+                  density_bins: int = 80, density_gamma: float = 1.0):
+    """对比初始、生成及目标点云；可选密度透明度和分位数视窗。
+
+    默认保留原始散点显示。density_weighted=True 淡化稀疏点；
+    view_quantile=0.995 以各组绝对坐标的 99.5% 分位数确定共同范围，
+    避免极端点撑大画布。仍使用原坐标和等比例坐标轴，图中标注视窗外点数。
+    这是可视化调整，不代表生成分布质量提高；不修改传入数据。
+    """
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     arrays = [np.asarray(points) for points in (initial, generated, target)]
     for points in arrays:
         if points.ndim != 2 or points.shape[1] != 2 or not len(points) or not np.isfinite(points).all():
             raise ValueError("每组点云必须为非空的有限 (N, 2) 数组")
-    fig = Figure(figsize=(13, 4.8), constrained_layout=True)
+    fig = Figure(figsize=(13, 5.5))
     FigureCanvasAgg(fig)
     axes = fig.subplots(1, 3, sharex=True, sharey=True)
-    bound = max(float(np.abs(points).max()) for points in arrays) + 0.2
+    fig.subplots_adjust(left=0.05, right=0.99, bottom=0.12, top=0.84, wspace=0.08)
+    if not 0 < view_quantile <= 1:
+        raise ValueError("view_quantile 必须在 (0, 1] 内")
+    bound = max(float(np.quantile(np.abs(points), view_quantile)) for points in arrays) + 0.2
     for ax, points, title in zip(axes, arrays, ("Initial XT | N(0, I)", "Generated X0 | DDPM", "Target | S distribution")):
-        ax.scatter(points[:, 0], points[:, 1], s=5, alpha=0.45, edgecolors="none")
+        alpha = density_opacity(points, bound=bound, bins=density_bins, gamma=density_gamma) if density_weighted else 0.45
+        ax.scatter(points[:, 0], points[:, 1], s=5, alpha=alpha, edgecolors="none")
         ax.set(title=title, xlabel="x", xlim=(-bound, bound), ylim=(-bound, bound))
         ax.set_aspect("equal", adjustable="box")
         ax.grid(alpha=0.2)
         ax.set_axisbelow(True)
+        if view_quantile < 1:
+            outside = int((np.abs(points) > bound).any(axis=1).sum())
+            ax.text(0.02, 0.02, f"Outside view: {outside} / {len(points)}", transform=ax.transAxes, fontsize=9)
     axes[0].set_ylabel("y")
+    if density_weighted:
+        fig.suptitle(f"Density-weighted opacity (gamma={density_gamma:g}) | Coordinates unchanged", fontsize=12)
     destination = Path(save_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(destination, dpi=160)

@@ -95,6 +95,9 @@ diffusion/
 - 已用首轮最佳权重生成 5000 点、执行完整 1000 步 CUDA 采样，耗时约 21.09 秒；结果在 `lgx_ddpm/Data/runs/tiny_20261022_160707_588204/samples_20261022_162843_738378/`。可见清晰 S 形，同时存在少量偏离曲线的点，尚未完全贴合目标分布。
 - 验证命令：`.\gpt_example_ddpm\.venv\Scripts\python.exe -m unittest lgx_ddpm.src.test_inference lgx_ddpm.src.test_model -v`，覆盖更新公式、最终步无噪声、时间编号、随机状态、模式恢复、CUDA 和训练检查点。
 
+- `misc/vis.py` 新增 `density_opacity`，使用二维直方图及相邻 3×3 格的计数估计局部密度，除以可见点密度的第 95 百分位并截断到 [0,1]，映射为透明度 `0.015 + 0.635 * density**gamma`；默认 `gamma=1`、80 格。只归一化显示权重，不移动或删除原始点，也不使用目标曲线筛选生成点。
+- `vis_inference(..., density_weighted=True, view_quantile=0.995, density_gamma=1.0)` 提供密度加权散点图，使用各组绝对坐标的分位数确定共同视窗并标注视窗外点数。默认参数仍显示全部原始散点。采样入口额外保存 `comparison_density.png`，保留 `comparison.png`；显示变化不意味着模型质量提高。
+
 ## 版本管理
 
 - 使用 Git 管理项目，GitHub 远程仓库为 `https://github.com/lgxhitairplane/simpleDiffusionModel`，主分支为 `main`。
