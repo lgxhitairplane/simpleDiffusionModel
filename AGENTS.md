@@ -85,6 +85,16 @@ diffusion/
 - `misc/vis.py` 中的 `vis_loss(run_dir, smoothing_window=100, show=False)` 读取已保存的 loss 记录，绘制逐批训练 MSE、100 步后向滑动平均及验证 MSE，标注最佳验证步；横轴为训练更新次数，不是扩散时间步。默认保存 `run_dir/loss.png`，训练结束后自动调用，也可独立用于已有训练记录。
 - 2026-10-22 已完成首轮默认 5000 步 GPU 训练，目录为 `lgx_ddpm/Data/runs/tiny_20261022_160707_588204/`：初始验证 MSE 为 1.021112，最佳验证 MSE 为 0.225350（第 3500 步，`best.pt`），最终为 0.225829；训练循环约 38.46 秒。`loss.png` 已保存；本轮生成分布质量尚待采样评估。
 
+## 当前 DDPM 采样
+
+- `lgx_ddpm/src/model.py` 的 `inference(model, beta, n_samples=2000, *, seed=42, return_initial=False)` 自行初始化二维标准高斯，返回形状 `(N, 2)` 的生成点 `X0`（PyTorch Tensor，设备和类型跟随模型参数）。`return_initial=True` 返回 `(X0, XT)`，便于对比。
+- 必须传入训练时完整的 `beta` 计划；从 `t=T` 逐步到 `t=1`，网络编号为 `t-1`。均值使用 DDPM Algorithm 2 的噪声预测公式；方差为 `beta_tilde = beta_t * (1-alpha_bar_{t-1}) / (1-alpha_bar_t)`，其中 `alpha_bar_0=1`。每步独立抽取高斯噪声，最后一步不添加噪声。
+- 使用局部 PyTorch Generator 控制整个采样过程，不修改全局随机数状态；关闭梯度，临时切换 eval 并恢复模型模式。不裁剪坐标，不重新归一化。
+- `lgx_ddpm/src/inference.py` 为命令行入口，读取检查点内的架构、权重和 beta。项目根目录运行 `.\gpt_example_ddpm\.venv\Scripts\python.exe -m lgx_ddpm.src.inference --checkpoint lgx_ddpm/Data/runs/tiny_20261022_160707_588204/best.pt --samples 5000`。可用 `--device`、`--seed`、`--output` 调整设备、种子和输出位置；拒绝覆盖已有目录。
+- 默认保存到检查点同目录下新建的 `samples_<时间戳>/`：`x0.npy` 为生成结果、`xt.npy` 为初始噪声、`target_reference.npy` 为独立抽取且仅用于比较的真实目标点、`config.json` 为采样参数。`misc/vis.py` 的 `vis_inference` 保存三组分布的 `comparison.png`，统一坐标范围并显示全部点。
+- 已用首轮最佳权重生成 5000 点、执行完整 1000 步 CUDA 采样，耗时约 21.09 秒；结果在 `lgx_ddpm/Data/runs/tiny_20261022_160707_588204/samples_20261022_162843_738378/`。可见清晰 S 形，同时存在少量偏离曲线的点，尚未完全贴合目标分布。
+- 验证命令：`.\gpt_example_ddpm\.venv\Scripts\python.exe -m unittest lgx_ddpm.src.test_inference lgx_ddpm.src.test_model -v`，覆盖更新公式、最终步无噪声、时间编号、随机状态、模式恢复、CUDA 和训练检查点。
+
 ## 版本管理
 
 - 使用 Git 管理项目，GitHub 远程仓库为 `https://github.com/lgxhitairplane/simpleDiffusionModel`，主分支为 `main`。

@@ -1,4 +1,4 @@
-"""复用 tiny-diffusion MLP，在保存的二维 DDPM 样本上训练。
+"""复用 tiny-diffusion MLP，训练二维 DDPM 并从高斯噪声采样。
 
 从项目根目录运行：python -m lgx_ddpm.src.model --steps 5000
 """
@@ -201,6 +201,72 @@ def trainModel(
     finally:
         for array in arrays.values():
             array._mmap.close()
+
+
+@torch.no_grad()
+def inference(
+    model: nn.Module,
+    beta: np.ndarray | torch.Tensor,
+    n_samples: int = 2000,
+    *,
+    seed: int | None = 42,
+    return_initial: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    """从 N(0, I_2) 开始，按 DDPM Algorithm 2 生成二维 X0。
+
+    beta 必须是训练时完整的方差计划；T = len(beta)，不跳步。
+    模型接收 t_model = t - 1，预测未缩放的 epsilon。
+    使用后验方差 beta_t * (1-alpha_bar_{t-1}) / (1-alpha_bar_t)，
+    每步重新采样独立噪声 z；最后一步 t=1 不添加噪声。
+
+    输出形状为 (n_samples, 2)，设备/类型跟随模型参数；无参数模型默认 CPU
+    float32。return_initial=True 返回 (X0, XT)，供对比可视化。
+    使用局部随机数生成器；固定 seed 可在相同设备/环境中复现整条采样过程。
+    不裁剪或归一化坐标，临时切换 eval 模式，结束后恢复原训练模式。
+    """
+    def check_initial():
+        if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)) or n_samples <= 0:
+            raise ValueError("n_samples 必须为正整数")
+        schedule = torch.as_tensor(beta, dtype=torch.float64).detach().cpu()
+        if schedule.ndim != 1 or not schedule.numel() or not torch.isfinite(schedule).all() or torch.any((schedule <= 0) | (schedule >= 1)):
+            raise ValueError("beta 必须为非空一维计划，且各项有限并满足 0 < beta_t < 1")
+        parameter = next(model.parameters(), None)
+        device = parameter.device if parameter is not None else torch.device("cpu")
+        dtype = parameter.dtype if parameter is not None else torch.float32
+        return schedule, device, dtype
+
+    beta, device, dtype = check_initial()
+    alpha = 1.0 - beta
+    alpha_bar = torch.cumprod(alpha, dim=0)
+    alpha_bar_prev = torch.cat((torch.ones(1, dtype=beta.dtype), alpha_bar[:-1]))
+    # 先用 float64 计算计划，再转换到网络的设备和类型。
+    inverse_sqrt_alpha = alpha.rsqrt().to(device=device, dtype=dtype)
+    noise_coefficient = (beta / torch.sqrt(1.0 - alpha_bar)).to(device=device, dtype=dtype)
+    sigma = torch.sqrt(beta * (1.0 - alpha_bar_prev) / (1.0 - alpha_bar)).to(device=device, dtype=dtype)
+    rng = torch.Generator(device=device)
+    if seed is None:
+        rng.seed()
+    else:
+        rng.manual_seed(seed)
+    x = torch.randn((n_samples, 2), generator=rng, device=device, dtype=dtype)
+    initial = x.clone() if return_initial else None
+    was_training = model.training
+    model.eval()
+    try:
+        for index in range(len(beta) - 1, -1, -1):
+            t_model = torch.full((n_samples,), index, device=device, dtype=torch.long)
+            epsilon = model(x, t_model)
+            if epsilon.shape != x.shape:
+                raise ValueError("模型必须为每个二维点预测二维噪声，输出形状应为 (N, 2)")
+            x = inverse_sqrt_alpha[index] * (x - noise_coefficient[index] * epsilon)
+            if index > 0:  # t=1 时仅取均值，不再抽取 z。
+                z = torch.randn(x.shape, generator=rng, device=device, dtype=dtype)
+                x = x + sigma[index] * z
+        if not torch.isfinite(x).all():
+            raise RuntimeError("采样产生 NaN 或无穷大，请检查模型和训练时的 beta 计划")
+    finally:
+        model.train(was_training)
+    return (x, initial) if return_initial else x
 
 
 if __name__ == "__main__":

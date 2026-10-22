@@ -153,6 +153,30 @@ def vis_training_data(
     return paths
 
 
+def vis_inference(initial, generated, target, *, save_path: str | Path):
+    """在相同坐标范围内对比初始高斯、生成点云和独立的目标分布样本。"""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    arrays = [np.asarray(points) for points in (initial, generated, target)]
+    for points in arrays:
+        if points.ndim != 2 or points.shape[1] != 2 or not len(points) or not np.isfinite(points).all():
+            raise ValueError("每组点云必须为非空的有限 (N, 2) 数组")
+    fig = Figure(figsize=(13, 4.8), constrained_layout=True)
+    FigureCanvasAgg(fig)
+    axes = fig.subplots(1, 3, sharex=True, sharey=True)
+    bound = max(float(np.abs(points).max()) for points in arrays) + 0.2
+    for ax, points, title in zip(axes, arrays, ("Initial XT | N(0, I)", "Generated X0 | DDPM", "Target | S distribution")):
+        ax.scatter(points[:, 0], points[:, 1], s=5, alpha=0.45, edgecolors="none")
+        ax.set(title=title, xlabel="x", xlim=(-bound, bound), ylim=(-bound, bound))
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(alpha=0.2)
+        ax.set_axisbelow(True)
+    axes[0].set_ylabel("y")
+    destination = Path(save_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(destination, dpi=160)
+    return fig, axes
+
+
 def vis_loss(
     run_dir: str | Path,
     *,
