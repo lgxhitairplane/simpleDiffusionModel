@@ -21,6 +21,21 @@ class RecordingModel(nn.Module):
 
 
 class InferenceTests(unittest.TestCase):
+    def test_recording_keeps_rng_and_captures_real_states(self):
+        model = RecordingModel()
+        expected = inference(model, [0.1, 0.2, 0.3], 4, seed=7)
+        frames = {}
+        result, initial = inference(model, [0.1, 0.2, 0.3], 4, seed=7,
+                                    return_initial=True, frame_every=2,
+                                    on_frame=lambda t, x: frames.update({t: x}))
+        self.assertEqual(list(frames), [3, 1, 0])
+        torch.testing.assert_close(result, expected)
+        torch.testing.assert_close(frames[3], initial)
+        torch.testing.assert_close(frames[0], result)
+        # 回调收到独立副本，修改帧不影响最终结果。
+        frames[0].zero_()
+        torch.testing.assert_close(result, expected)
+
     def test_two_steps_match_formula_and_preserve_state(self):
         model = RecordingModel()
         global_state = torch.random.get_rng_state().clone()

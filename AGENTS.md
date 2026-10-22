@@ -98,6 +98,10 @@ diffusion/
 - `misc/vis.py` 新增 `density_opacity`，使用二维直方图及相邻 3×3 格的计数估计局部密度，除以可见点密度的第 95 百分位并截断到 [0,1]，映射为透明度 `0.015 + 0.635 * density**gamma`；默认 `gamma=1`、80 格。只归一化显示权重，不移动或删除原始点，也不使用目标曲线筛选生成点。
 - `vis_inference(..., density_weighted=True, view_quantile=0.995, density_gamma=1.0)` 提供密度加权散点图，使用各组绝对坐标的分位数确定共同视窗并标注视窗外点数。默认参数仍显示全部原始散点。采样入口额外保存 `comparison_density.png`，保留 `comparison.png`；显示变化不意味着模型质量提高。
 
+- `inference(..., on_frame=callback, frame_every=10)` 可记录真实采样轨迹：回调接收 `(t, points)`，点坐标为独立 CPU Tensor 副本；包含初始 XT、每完成指定更新次数后的状态及最终 X0，保持同一行对应同一个点，不影响随机数序列或最终结果。
+- `lgx_ddpm/src/misc/animation.py` 的 `vis_sampling_gif(trajectory, timesteps, *, save_path, fps=20, view_quantile=0.995, density_bins=80, density_gamma=1.0)` 导出密度透明度 GIF。轨迹形状为 `(F,N,2)`，时间严格递减至 0；所有帧使用共同固定视窗，逐帧标注实际时间、已完成步数和视窗外点数，首帧停留 600ms、末帧 1500ms，循环播放。
+- 采样命令增加 `--gif --frame-every 10 --fps 20`，完整执行 1000 步并保存 101 帧，额外输出 `trajectory.npz`（`points`、`timesteps`）及 `sampling_density.gif`。可直接读取轨迹调用 `vis_sampling_gif` 重绘，无需重新运行模型。动画显示样式不改变采样数据。
+
 ## 版本管理
 
 - 使用 Git 管理项目，GitHub 远程仓库为 `https://github.com/lgxhitairplane/simpleDiffusionModel`，主分支为 `main`。

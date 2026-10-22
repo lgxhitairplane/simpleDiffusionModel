@@ -4,6 +4,7 @@
 """
 
 import argparse
+from collections.abc import Callable
 from datetime import datetime
 import json
 from pathlib import Path
@@ -211,6 +212,8 @@ def inference(
     *,
     seed: int | None = 42,
     return_initial: bool = False,
+    on_frame: Callable[[int, torch.Tensor], None] | None = None,
+    frame_every: int = 10,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """从 N(0, I_2) 开始，按 DDPM Algorithm 2 生成二维 X0。
 
@@ -223,8 +226,12 @@ def inference(
     float32。return_initial=True 返回 (X0, XT)，供对比可视化。
     使用局部随机数生成器；固定 seed 可在相同设备/环境中复现整条采样过程。
     不裁剪或归一化坐标，临时切换 eval 模式，结束后恢复原训练模式。
+    on_frame(t, points) 可记录真实采样状态；points 是独立的 CPU Tensor 副本。
+    始终记录 XT、X0，其余每完成 frame_every 次更新记录一次，不跳过采样步骤。
     """
     def check_initial():
+        if isinstance(frame_every, bool) or not isinstance(frame_every, int) or frame_every <= 0:
+            raise ValueError("frame_every 必须为正整数")
         if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)) or n_samples <= 0:
             raise ValueError("n_samples 必须为正整数")
         schedule = torch.as_tensor(beta, dtype=torch.float64).detach().cpu()
@@ -253,6 +260,8 @@ def inference(
     was_training = model.training
     model.eval()
     try:
+        if on_frame is not None:
+            on_frame(len(beta), x.detach().cpu().clone())
         for index in range(len(beta) - 1, -1, -1):
             t_model = torch.full((n_samples,), index, device=device, dtype=torch.long)
             epsilon = model(x, t_model)
@@ -262,6 +271,8 @@ def inference(
             if index > 0:  # t=1 时仅取均值，不再抽取 z。
                 z = torch.randn(x.shape, generator=rng, device=device, dtype=dtype)
                 x = x + sigma[index] * z
+            if on_frame is not None and ((len(beta) - index) % frame_every == 0 or index == 0):
+                on_frame(index, x.detach().cpu().clone())
         if not torch.isfinite(x).all():
             raise RuntimeError("采样产生 NaN 或无穷大，请检查模型和训练时的 beta 计划")
     finally:
