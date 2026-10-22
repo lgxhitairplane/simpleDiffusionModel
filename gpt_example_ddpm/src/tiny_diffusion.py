@@ -3,7 +3,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from positional_embeddings import PositionalEmbedding
+if __package__:
+    from .positional_embeddings import PositionalEmbedding
+else:
+    from positional_embeddings import PositionalEmbedding
 
 
 class Block(nn.Module):

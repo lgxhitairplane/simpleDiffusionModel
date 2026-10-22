@@ -74,6 +74,15 @@ diffusion/
 - `lgx_ddpm/src/misc/vis.py` 的 `group_training_data` 分块读取并按精确时间步汇总；`vis_training_data` 为 `t=100,300,500,700,1000` 各保存一张 `Xt / X0 / epsilon` 三联图至 `rawdata/plots/`。同组样本严格对应，跨组坐标范围相同；epsilon 是未缩放的训练目标。
 - 时间步仍按均匀分布随机抽样，100 万条样本中每个 t 预计约 1000 条，实际数量随机；不同 t 的图展示不同原始样本的分布，不表示相同样本的演化轨迹。
 
+## 当前模型训练
+
+- `lgx_ddpm/src/model.py` 复用 `gpt_example_ddpm/src/tiny_diffusion.py` 的默认 MLP（128 维坐标/时间编码、128 隐藏宽度、3 个残差块，99,074 个参数），随机初始化后训练。
+- `Loss(model, Xt, t_model, epsilon)` 直接计算模型预测与目标噪声的均方误差，对 batch 和坐标取平均；`t_model` 为 `0..T-1`。训练读取保存的 `t` 后减 1，后续采样必须沿用这个编号约定。
+- `trainModel` 默认从 `lgx_ddpm/Data/rawdata/` 按需读取，训练 5000 步、batch size 512、Adam 学习率 0.0002、梯度最大范数 1；固定随机划分 10000 条验证样本，每 500 步及末步评估，训练样本按批次有放回抽取。数据保持原尺度。
+- 默认自动选择 CUDA/CPU；输出至 `lgx_ddpm/Data/runs/tiny_<时间戳>/`，拒绝覆盖。保存 `best.pt`、`last.pt`、`config.json`、`validation_indices.npy`、`train_loss.npy`、`history.json`、`summary.json`；检查点包含结构配置、beta 计划和时间步约定。返回验证误差最低的模型（eval 模式），暂不支持断点续训。
+- 从项目根目录运行 `.\gpt_example_ddpm\.venv\Scripts\python.exe -m lgx_ddpm.src.model --steps 5000`；短程验证可降低 `--steps`、`--validation-size` 并调整 `--eval-every`。模块依赖 NumPy 和 PyTorch，复用已安装的实验环境。
+- 模型检查：`.\gpt_example_ddpm\.venv\Scripts\python.exe -m unittest lgx_ddpm.src.test_model -v`。
+
 ## 版本管理
 
 - 使用 Git 管理项目，GitHub 远程仓库为 `https://github.com/lgxhitairplane/simpleDiffusionModel`，主分支为 `main`。
