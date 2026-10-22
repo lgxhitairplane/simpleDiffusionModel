@@ -82,6 +82,8 @@ diffusion/
 - 默认自动选择 CUDA/CPU；输出至 `lgx_ddpm/Data/runs/tiny_<时间戳>/`，拒绝覆盖。保存 `best.pt`、`last.pt`、`config.json`、`validation_indices.npy`、`train_loss.npy`、`history.json`、`summary.json`；检查点包含结构配置、beta 计划和时间步约定。返回验证误差最低的模型（eval 模式），暂不支持断点续训。
 - 从项目根目录运行 `.\gpt_example_ddpm\.venv\Scripts\python.exe -m lgx_ddpm.src.model --steps 5000`；短程验证可降低 `--steps`、`--validation-size` 并调整 `--eval-every`。模块依赖 NumPy 和 PyTorch，复用已安装的实验环境。
 - 模型检查：`.\gpt_example_ddpm\.venv\Scripts\python.exe -m unittest lgx_ddpm.src.test_model -v`。
+- `misc/vis.py` 中的 `vis_loss(run_dir, smoothing_window=100, show=False)` 读取已保存的 loss 记录，绘制逐批训练 MSE、100 步后向滑动平均及验证 MSE，标注最佳验证步；横轴为训练更新次数，不是扩散时间步。默认保存 `run_dir/loss.png`，训练结束后自动调用，也可独立用于已有训练记录。
+- 2026-10-22 已完成首轮默认 5000 步 GPU 训练，目录为 `lgx_ddpm/Data/runs/tiny_20261022_160707_588204/`：初始验证 MSE 为 1.021112，最佳验证 MSE 为 0.225350（第 3500 步，`best.pt`），最终为 0.225829；训练循环约 38.46 秒。`loss.png` 已保存；本轮生成分布质量尚待采样评估。
 
 ## 版本管理
 

@@ -62,7 +62,7 @@ def trainModel(
 
     输出目录默认为 Data/runs/tiny_<时间戳>，拒绝覆盖已有目录。
     best.pt、last.pt 保存权重、架构、beta 和时间步约定等推理所需信息。
-    train_loss.npy 保存逐步 loss，history.json 保存验证记录。
+    train_loss.npy 保存逐步 loss，history.json 保存验证记录，loss.png 保存曲线。
     本函数每次从头训练，暂不提供断点续训接口。
     """
     def check_initial():
@@ -190,6 +190,10 @@ def trainModel(
                        initial_validation_loss=initial_loss, final_validation_loss=history[-1]["validation_loss"],
                        elapsed_seconds=time.perf_counter() - started)
         (destination / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        from .misc.vis import vis_loss
+        fig, _ = vis_loss(destination)
+        fig.clear()
+        print(f"Saved loss plot: {destination / 'loss.png'}", flush=True)
         checkpoint = torch.load(destination / "best.pt", map_location=selected, weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()

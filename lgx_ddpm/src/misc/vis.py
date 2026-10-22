@@ -151,3 +151,62 @@ def vis_training_data(
             plt.close(fig)
         paths.append(path)
     return paths
+
+
+def vis_loss(
+    run_dir: str | Path,
+    *,
+    save_path: str | Path | None = None,
+    smoothing_window: int = 100,
+    show: bool = False,
+) -> tuple[Figure, Axes]:
+    """读取训练记录，绘制逐步 loss、后向滑动平均和验证集 loss。
+
+    横轴为优化器更新次数，不是扩散时间步 t。默认保存 run_dir/loss.png。
+    平滑仅用于显示，不修改原始 loss；验证曲线使用真实评估步数（含初始 0）。
+    默认使用无窗口画布，适用于训练结束后自动保存；返回 (fig, ax)。
+    """
+    root = Path(run_dir)
+    losses = np.load(root / "train_loss.npy", allow_pickle=False)
+    history = json.loads((root / "history.json").read_text(encoding="utf-8"))
+    if losses.ndim != 1 or not losses.size or not np.isfinite(losses).all():
+        raise ValueError("train_loss.npy 必须为非空的有限一维数组")
+    if isinstance(smoothing_window, bool) or not isinstance(smoothing_window, int) or smoothing_window <= 0:
+        raise ValueError("smoothing_window 必须为正整数")
+    val_steps = np.asarray([item["step"] for item in history], dtype=np.int64)
+    val_losses = np.asarray([item["validation_loss"] for item in history], dtype=np.float64)
+    if not len(val_losses) or not np.isfinite(val_losses).all():
+        raise ValueError("history.json 必须包含有限的验证 loss")
+    if np.any(np.diff(val_steps) <= 0) or val_steps[0] < 0 or val_steps[-1] > len(losses):
+        raise ValueError("验证步数必须递增，并与训练记录范围一致")
+
+    if show:
+        fig, ax = plt.subplots(figsize=(10, 5.5), constrained_layout=True)
+    else:
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        fig = Figure(figsize=(10, 5.5), constrained_layout=True)
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
+    steps = np.arange(1, len(losses) + 1)
+    window = min(smoothing_window, len(losses))
+    smoothed = np.convolve(losses, np.ones(window) / window, mode="valid")
+    ax.plot(steps, losses, color="#93c5fd", alpha=0.5, linewidth=0.7, label="Training MSE (each batch)")
+    ax.plot(steps[window - 1:], smoothed, color="#2563eb", linewidth=1.8,
+            label=f"Training MSE ({window}-step trailing mean)")
+    ax.plot(val_steps, val_losses, "o-", color="#ea580c", markersize=4, linewidth=1.6,
+            label="Validation MSE")
+    best = int(np.argmin(val_losses))
+    ax.scatter(val_steps[best], val_losses[best], marker="*", s=160, color="#b91c1c",
+               zorder=5, label=f"Best validation: {val_losses[best]:.4f} at step {val_steps[best]}")
+    ax.set(title="DDPM noise prediction loss", xlabel="Training update step", ylabel="Mean squared error")
+    ax.set_ylim(bottom=0)
+    ax.set_xlim(0, max(1, len(losses)))
+    ax.grid(alpha=0.2)
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper right", fontsize=9)
+    destination = Path(save_path) if save_path is not None else root / "loss.png"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(destination, dpi=160)
+    if show:
+        plt.show()
+    return fig, ax

@@ -61,6 +61,7 @@ class ModelTests(unittest.TestCase):
                 last = torch.load(output / "last.pt", weights_only=True)
                 self.assertEqual(last["step"], 2)
                 self.assertEqual(np.load(output / "train_loss.npy").shape, (2,))
+                self.assertEqual((output / "loss.png").read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
                 self.assertFalse(model.training)
                 with self.assertRaises(FileExistsError):
                     trainModel(raw, output_dir=output, validation_size=17, device="cpu")
